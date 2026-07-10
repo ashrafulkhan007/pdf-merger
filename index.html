@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stackline — PDF merger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root {
+    --felt: #1F3B2C;
+    --felt-dark: #16291F;
+    --felt-line: rgba(255,255,255,0.07);
+    --paper: #EFE9D8;
+    --paper-edge: #E1D9C2;
+    --ink: #241F14;
+    --ink-soft: #6B6250;
+    --stamp: #A13A2C;
+    --stamp-dark: #7C2C21;
+    --ballpoint: #2C4A6E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--felt);
+    background-image:
+      repeating-linear-gradient(0deg, var(--felt-line) 0px, var(--felt-line) 1px, transparent 1px, transparent 26px),
+      repeating-linear-gradient(90deg, var(--felt-line) 0px, var(--felt-line) 1px, transparent 1px, transparent 26px);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 48px 24px 80px;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { margin-bottom: 36px; }
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #C9C2A8;
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 40px;
+    color: #F4F0E2;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    color: #B8B29A;
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+    max-width: 46ch;
+  }
+
+  .dropzone {
+    margin-top: 32px;
+    border: 2px dashed #8FA894;
+    border-radius: 6px;
+    padding: 36px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    background: rgba(255,255,255,0.02);
+  }
+  .dropzone:hover, .dropzone.drag {
+    background: rgba(255,255,255,0.06);
+    border-color: #C9C2A8;
+  }
+  .dropzone p { margin: 0; color: #DCD6C2; font-size: 14px; }
+  .dropzone .icon { font-size: 26px; color: #8FA894; margin-bottom: 10px; display: block; }
+  .dropzone .hint { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8B8770; margin-top: 6px; }
+  input[type=file] { display: none; }
+
+  .stack { margin-top: 28px; display: flex; flex-direction: column; gap: 10px; }
+
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 3px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.15), 0 8px 14px rgba(0,0,0,0.22);
+    cursor: grab;
+  }
+  .card.dragging { opacity: 0.35; }
+  .card.error { border-color: var(--stamp); background: #EBD9D4; }
+
+  .handle {
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--ink-soft);
+    font-size: 14px;
+    letter-spacing: 2px;
+    user-select: none;
+  }
+  .num {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--ballpoint);
+    width: 26px;
+    flex-shrink: 0;
+  }
+  .meta { flex: 1; min-width: 0; }
+  .fname {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fdetail {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-top: 2px;
+  }
+  .fdetail.err { color: var(--stamp); }
+  .remove {
+    background: none;
+    border: none;
+    color: var(--ink-soft);
+    font-size: 18px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 6px;
+  }
+  .remove:hover { color: var(--stamp); }
+
+  .empty {
+    text-align: center;
+    color: #8B8770;
+    font-size: 13px;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 20px 0 4px;
+  }
+
+  .action-row {
+    margin-top: 32px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .stamp-btn {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 0.03em;
+    color: #F4E9DE;
+    background: var(--stamp);
+    border: 2px solid #C97D6C;
+    border-radius: 4px;
+    padding: 14px 26px;
+    cursor: pointer;
+    transform: rotate(-1.5deg);
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .stamp-btn:hover:not(:disabled) { transform: rotate(-1.5deg) scale(1.03); background: var(--stamp-dark); }
+  .stamp-btn:active:not(:disabled) { transform: rotate(-1.5deg) scale(0.97); }
+  .stamp-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: #C9C2A8;
+  }
+  .status.ok { color: #A9CBA8; }
+  .status.bad { color: #E4A398; }
+
+  a.download {
+    display: none;
+  }
+
+  footer {
+    margin-top: 44px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    color: #7C7860;
+    line-height: 1.7;
+  }
+  footer .credit {
+    margin-top: 6px;
+    color: #9C9680;
+    letter-spacing: 0.04em;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">No upload · runs in your browser</p>
+    <h1>Stackline</h1>
+    <p class="sub">Drop your PDFs on the desk, arrange the stack in the order you want them read, then press it into one file.</p>
+  </header>
+
+  <div class="dropzone" id="dropzone">
+    <span class="icon"><i>&#128196;</i></span>
+    <p>Drop PDF files here, or click to choose</p>
+    <p class="hint">files never leave this browser tab</p>
+    <input type="file" id="fileInput" accept="application/pdf" multiple>
+  </div>
+
+  <div class="stack" id="stack"></div>
+  <p class="empty" id="emptyMsg">the desk is empty — add some pages above</p>
+
+  <div class="action-row">
+    <button class="stamp-btn" id="mergeBtn" disabled>Press &amp; merge</button>
+    <span class="status" id="statusMsg"></span>
+  </div>
+  <a class="download" id="downloadLink"></a>
+
+  <footer>
+    reorder by dragging a card · remove with the &times; · pages merge top to bottom
+    <div class="credit">Created by Md Ashraful Hakim Khan Siddiquee</div>
+  </footer>
+</div>
+
+<script>
+const { PDFDocument } = PDFLib;
+let entries = [];
+let idCounter = 0;
+let dragSrcId = null;
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const stackEl = document.getElementById('stack');
+const emptyMsg = document.getElementById('emptyMsg');
+const mergeBtn = document.getElementById('mergeBtn');
+const statusMsg = document.getElementById('statusMsg');
+const downloadLink = document.getElementById('downloadLink');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+
+function addFiles(fileList) {
+  for (const file of fileList) {
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) continue;
+    const entry = { id: idCounter++, file, name: file.name, pages: null, error: null };
+    entries.push(entry);
+    inspectFile(entry);
+  }
+  render();
+}
+
+async function inspectFile(entry) {
+  try {
+    const bytes = await entry.file.arrayBuffer();
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    entry.pages = doc.getPageCount();
+  } catch (e) {
+    entry.error = 'could not read this file';
+  }
+  render();
+}
+
+function render() {
+  stackEl.innerHTML = '';
+  emptyMsg.style.display = entries.length ? 'none' : 'block';
+
+  entries.forEach((entry, i) => {
+    const card = document.createElement('div');
+    card.className = 'card' + (entry.error ? ' error' : '');
+    card.draggable = true;
+    card.dataset.id = entry.id;
+
+    const sizeKb = Math.round(entry.file.size / 1024);
+    const detail = entry.error
+      ? entry.error
+      : (entry.pages === null ? 'reading…' : `${entry.pages} page${entry.pages === 1 ? '' : 's'} · ${sizeKb} KB`);
+
+    card.innerHTML = `
+      <span class="handle">::</span>
+      <span class="num">${String(i + 1).padStart(2, '0')}</span>
+      <div class="meta">
+        <div class="fname">${escapeHtml(entry.name)}</div>
+        <div class="fdetail ${entry.error ? 'err' : ''}">${detail}</div>
+      </div>
+      <button class="remove" aria-label="Remove file" data-id="${entry.id}">&times;</button>
+    `;
+
+    card.addEventListener('dragstart', () => { dragSrcId = entry.id; card.classList.add('dragging'); });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('dragover', e => e.preventDefault());
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      if (dragSrcId === null || dragSrcId === entry.id) return;
+      const fromIdx = entries.findIndex(x => x.id === dragSrcId);
+      const toIdx = entries.findIndex(x => x.id === entry.id);
+      const [moved] = entries.splice(fromIdx, 1);
+      entries.splice(toIdx, 0, moved);
+      render();
+    });
+
+    card.querySelector('.remove').addEventListener('click', () => {
+      entries = entries.filter(x => x.id !== entry.id);
+      render();
+    });
+
+    stackEl.appendChild(card);
+  });
+
+  mergeBtn.disabled = entries.length < 2 || entries.some(e => e.pages === null && !e.error);
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+mergeBtn.addEventListener('click', async () => {
+  const usable = entries.filter(e => !e.error);
+  if (usable.length < 1) return;
+
+  mergeBtn.disabled = true;
+  statusMsg.textContent = 'pressing pages together…';
+  statusMsg.className = 'status';
+
+  try {
+    const merged = await PDFDocument.create();
+    let skipped = 0;
+
+    for (const entry of usable) {
+      try {
+        const bytes = await entry.file.arrayBuffer();
+        const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const copied = await merged.copyPages(doc, doc.getPageIndices());
+        copied.forEach(p => merged.addPage(p));
+      } catch (e) {
+        skipped++;
+      }
+    }
+
+    const mergedBytes = await merged.save();
+    const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+
+    downloadLink.href = url;
+    downloadLink.download = 'merged.pdf';
+    downloadLink.click();
+
+    statusMsg.textContent = skipped
+      ? `done — merged.pdf downloaded (${skipped} file${skipped === 1 ? '' : 's'} skipped)`
+      : 'done — merged.pdf downloaded';
+    statusMsg.className = 'status ok';
+  } catch (e) {
+    statusMsg.textContent = 'something went wrong — check the files and try again';
+    statusMsg.className = 'status bad';
+  }
+
+  mergeBtn.disabled = entries.length < 2;
+});
+</script>
+</body>
+</html>
